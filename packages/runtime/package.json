@@ -1,0 +1,30 @@
+{
+	"name": "runtime",
+	"version": "1.0.0",
+	"main": "dist/index.js",
+	"files": [
+		"dist/index.js"
+	],
+	"scripts": {
+		"prepack": "npm run build",
+		"build": "rollup -c",
+		"lint": "eslint src/**/*.js",
+		"lint:fix": "eslint src/**/*.js --fix",
+		"test": "vitest",
+		"test:run": "vitest --run"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"description": "",
+	"devDependencies": {
+		"@eslint/js": "^9.27.0",
+		"eslint": "^9.27.0",
+		"globals": "^16.1.0",
+		"jsdom": "^26.1.0",
+		"rollup": "^4.41.0",
+		"rollup-plugin-cleanup": "^3.2.1",
+		"rollup-plugin-filesize": "^10.0.0",
+		"vitest": "^3.1.4"
+	}
+}

@@ -1,0 +1,21 @@
+{
+	"name": "sverx-freym-project",
+	"version": "1.0.0",
+	"main": "index.js",
+	"scripts": {
+		"serve:exaples": "npm http-server . -o ./examples"
+	},
+	"keywords": [
+		"sverx",
+		"freym",
+		"frontend",
+		"framework"
+	],
+	"author": "Sverxsro4nik@gmail.com",
+	"license": "ISC",
+	"description": "A project to learn how to write a frontend framework",
+	"private": true,
+	"workspaces": [
+		"packages/runtime"
+	]
+}
