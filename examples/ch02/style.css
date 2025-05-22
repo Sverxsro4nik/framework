@@ -1,0 +1,33 @@
+* {
+	box-sizing: border-box;
+	margin: 0;
+}
+
+body {
+	font-family: 'Roboto', sans-serif;
+	font-optical-sizing: auto;
+	font-style: normal;
+	margin: 0 auto;
+	max-width: 600px;
+	padding: 2rem;
+}
+
+h1 {
+	font-size: 2rem;
+	margin-bottom: 2rem;
+}
+
+.add-todo-container {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+label {
+	font-style: italic;
+}
+
+.add-todo-input-container {
+	display: flex;
+	gap: 1rem;
+}
