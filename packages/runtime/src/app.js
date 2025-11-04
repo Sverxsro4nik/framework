@@ -1,6 +1,6 @@
-import { destroyDom } from './destroy-dom';
+import { destroyDOM } from './destroy-dom';
 import { Dispatcher } from './dispatcher';
-import { mountDom } from './mount-dom';
+import { mountDOM } from './mount-dom';
 
 export function createApp({ state, view, reducers = {} }) {
 	let parentEl = null;
@@ -25,10 +25,10 @@ export function createApp({ state, view, reducers = {} }) {
 
 	function renderApp() {
 		if (vdom) {
-			destroyDom(vdom);
+			destroyDOM(vdom);
 		}
-		vdom = view(state);
-		mountDom(vdom, parentEl);
+		vdom = view(state, emit);
+		mountDOM(vdom, parentEl);
 	}
 
 	return {
@@ -38,7 +38,7 @@ export function createApp({ state, view, reducers = {} }) {
 		},
 
 		unmount() {
-			destroyDom(vdom);
+			destroyDOM(vdom);
 			vdom = null;
 			subscriptions.forEach(unsubscribe => unsubscribe());
 		},

@@ -1,5 +1,5 @@
 export function setAttributes(el, attrs) {
-	const { class: className, style, ...otherAttrs } = attrs;
+	const { class: className, style, ...otherAttrs } = attrs || {};
 
 	if (className) {
 		setClass(el, className);

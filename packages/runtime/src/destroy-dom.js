@@ -36,7 +36,7 @@ function removeElementNode(vdom) {
 	children.forEach(destroyDOM);
 
 	if (listeners) {
-		removeEventListeners(listeners, el);
+		removeEventListeners(el, listeners);
 		delete vdom.listeners;
 	}
 }
