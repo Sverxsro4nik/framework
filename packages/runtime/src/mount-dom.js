@@ -5,17 +5,17 @@ import { addEventListeners } from './events';
 export function mountDOM(vdom, parentEl) {
 	switch (vdom.type) {
 		case DOM_TYPES.TEXT: {
-			createTextNode(parentEl);
+			createTextNode(vdom, parentEl);
 			break;
 		}
 
 		case DOM_TYPES.ELEMENT: {
-			createElementNode(parentEl);
+			createElementNode(vdom, parentEl);
 			break;
 		}
 
 		case DOM_TYPES.FRAGMENT: {
-			createFragmentNodes(parentEl);
+			createFragmentNodes(vdom, parentEl);
 			break;
 		}
 	}
@@ -41,7 +41,7 @@ function createFragmentNodes(vdom, parentEl) {
 }
 
 function createElementNode(vdom, parentEl) {
-	const { tag, props, children } = vdom;
+	const { tag, props, children = [] } = vdom;
 
 	const element = document.createElement(tag);
 	addProps(element, props, vdom);
@@ -52,7 +52,7 @@ function createElementNode(vdom, parentEl) {
 }
 
 function addProps(el, props, vdom) {
-	const { on: events, ...attrs } = props;
+	const { on: events, ...attrs } = props || {};
 
 	vdom.listeners = addEventListeners(el, events);
 

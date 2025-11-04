@@ -1,144 +1,141 @@
-// App state
-const TODO = ['Walk the dog', 'Water the plants', 'Sand the chairs'];
+const { createApp, h, hFragment } = SverxRuntime;
 
-// Link for HTML elements
-const addTodoInput = document.getElementById('todo-input');
-const addTodoButton = document.getElementById('add-todo-btn');
-const TODOList = document.getElementById('TODO-list');
+const state = {
+	currentTodo: '',
+	edit: {
+		idx: null,
+		original: null,
+		edited: null,
+	},
+	TODO: ['Walk the dog', 'Water the plants'],
+};
 
-// View initialisation
+const reducers = {
+	'update-current-todo': (state, currentTodo) => ({
+		...state,
+		currentTodo,
+	}),
 
-for (const todo of TODO) {
-	TODOList.appendChild(renderTodoInReadMode(todo));
-}
+	'add-todo': state => ({
+		...state,
+		currentTodo: '',
+		TODO: [...state.TODO, state.currentTodo],
+	}),
 
-addTodoInput.addEventListener('input', () => {
-	addTodoButton.disabled = addTodoInput.value.trim().length < 3;
-});
+	'start-editing-todo': (state, idx) => ({
+		...state,
+		edit: {
+			idx,
+			original: state.TODO[idx],
+			edit: state.TODO[idx],
+		},
+	}),
 
-addTodoInput.addEventListener('keydown', event => {
-	if (event.key === 'Enter' && addTodoInput.value.trim().length >= 3) {
-		addTodo();
-	}
-});
+	'edit-todo': (state, edited) => ({
+		...state,
+		edit: { ...state.edit, edited },
+	}),
 
-addTodoButton.addEventListener('click', () => {
-	addTodo();
-});
-
-function renderTodoInReadMode(todo) {
-	const li = document.createElement('li');
-
-	const span = document.createElement('span');
-	span.textContent = todo;
-	span.addEventListener('dblclick', () => {
-		const index = TODO.indexOf(todo);
-		TODOList.replaceChild(renderTodoInEditMode(todo), TODOList.children[index]);
-	});
-
-	li.appendChild(span);
-
-	const button = document.createElement('button');
-	button.textContent = 'Done';
-
-	button.addEventListener('click', () => {
-		const index = TODO.indexOf(todo);
-		removeTodo(index);
-	});
-
-	li.appendChild(button);
-
-	return li;
-}
-
-function renderTodoInEditMode(todo) {
-	const li = document.createElement('li');
-
-	const input = document.createElement('input');
-	input.type = 'text';
-	input.value = todo;
-	li.appendChild(input);
-
-	const saveButton = document.createElement('button');
-	saveButton.textContent = 'Save';
-	saveButton.addEventListener('click', () => {
-		const index = TODO.indexOf(todo);
-		updateTodo(index, input.value);
-	});
-
-	li.appendChild(saveButton);
-
-	const cancelButton = document.createElement('button');
-	cancelButton.textContent = 'Cancel';
-	cancelButton.addEventListener('click', () => {
-		const index = TODO.indexOf(todo);
-		TODOList.replaceChild(renderTodoInReadMode(todo), TODOList.children[index]);
-	});
-
-	li.appendChild(cancelButton);
-
-	return li;
-}
-
-function addTodo() {
-	const description = addTodoInput.value.trim();
-	if (TODO.includes(description)) {
-		alert('TODO already exists');
-		return;
-	}
-	TODO.push(description);
-	const todo = renderTodoInReadMode(description);
-	TODOList.appendChild(todo);
-	addTodoInput.value = '';
-	speak(description);
-	addTodoButton.disabled = true;
-}
-
-function removeTodo(index) {
-	TODO.splice(index, 1);
-	const element = TODOList.children[index];
-	const span = element.querySelector('span');
-	span.style.textDecoration = 'line-through';
-}
-
-function updateTodo(index, todo) {
-	TODO[index] = todo;
-	const element = renderTodoInReadMode(todo);
-	TODOList.replaceChild(element, TODOList.children[index]);
-}
-
-const synth = window.speechSynthesis;
-
-function speak(value) {
-	if (synth.speaking) {
-		console.error('speechSynthesis.speaking');
-		synth.cancel();
-		setTimeout(speak, 300);
-	} else if (value !== '') {
-		const utterThis = new SpeechSynthesisUtterance(value);
-		utterThis.onend = function (event) {
-			console.log('SpeechSynthesisUtterance.onend');
+	'save-edited-todo': state => {
+		const TODO = [...state.TODO];
+		TODO[state.edit.idx] = state.edit.edited;
+		return {
+			...state,
+			TODO,
+			edit: { idx: null, original: null, edited: null },
 		};
+	},
 
-		utterThis.onerror = function (event) {
-			console.error('SpeechSynthesisUtterance.onerror');
-		};
-		utterThis.voice = synth.getVoices()[0];
-		utterThis.onpause = function (event) {
-			const char = event.utterance.text.charAt(event.charIndex);
-			console.log(
-				'Speech paused at character ' +
-					event.charIndex +
-					' of "' +
-					event.utterance.text +
-					'", which is "' +
-					char +
-					'".'
-			);
-		};
+	'cancel-editing-todo': state => ({
+		...state,
+		edit: {
+			idx: null,
+			original: null,
+			edited: null,
+		},
+	}),
 
-		utterThis.pitch = 10;
-		utterThis.rate = 1;
-		synth.speak(utterThis);
-	}
+	'remove-todo': (state, idx) => ({
+		...state,
+		TODO: state.TODO.filter((_, i) => i !== idx),
+	}),
+};
+
+function App(state, emit) {
+	return hFragment([
+		h('h1', {}, ['My TODO']),
+		CreateTodo(state, emit),
+		TodoList(state, emit),
+	]);
 }
+
+function CreateTodo({ currentTodo }, emit) {
+	return h('div', {}, [
+		h('label', { for: 'todo-input' }, ['New TODO']),
+		h('input', {
+			type: 'text',
+			id: 'todo-input',
+			value: currentTodo,
+			on: {
+				input: ({ target }) => emit('update-current-todo', target.value),
+				keydown: ({ key }) => {
+					if (key === 'Enter' && currentTodo.length >= 3) {
+						emit('add-todo');
+					}
+				},
+			},
+		}),
+		h(
+			'button',
+			{
+				disabled: currentTodo.length < 3,
+				on: { click: () => emit('add-todo') },
+			},
+			['Add']
+		),
+	]);
+}
+
+function TodoList({ TODO, edit }, emit) {
+	return h(
+		'ul',
+		{},
+		TODO.map((todo, i) => TodoItem({ todo, i, edit }, emit))
+	);
+}
+
+function TodoItem({ todo, i, edit }, emit) {
+	const isEditing = edit.idx === i;
+
+	const editing = h('li', {}, [
+		h('input', {
+			value: edit.edited,
+			on: {
+				input: ({ target }) => emit('edit-todo', target.value),
+			},
+		}),
+		h('button', { on: { click: () => emit('save-edited-todo') } }, ['Save']),
+		h('button', { on: { click: () => emit('cancel-editing-todo') } }, [
+			'Cancel',
+		]),
+	]);
+
+	const notEditing = h('li', {}, [
+		h(
+			'span',
+			{
+				on: {
+					dblclick: () => emit('start-editing-todo', i),
+				},
+			},
+			[todo]
+		),
+		h('button', { on: { click: () => emit('remove-todo', i) } }, ['Done']),
+	]);
+
+	return isEditing ? editing : notEditing;
+}
+
+createApp({ state, reducers, view: App }).mount(
+	document.getElementById('root')
+);

@@ -1,6 +1,6 @@
 {
-	"name": "runtime",
-	"version": "1.0.0",
+	"name": "sverx-runtime",
+	"version": "1.0.6",
 	"main": "dist/index.js",
 	"files": [
 		"dist/index.js"
@@ -13,10 +13,14 @@
 		"test": "vitest",
 		"test:run": "vitest --run"
 	},
-	"keywords": [],
-	"author": "",
-	"license": "ISC",
-	"description": "",
+	"keywords": [
+		"sverx",
+		"runtime",
+		"framework"
+	],
+	"author": "Your Name <your.email@example.com>",
+	"license": "MIT",
+	"description": "Sverx Framework Runtime Package",
 	"devDependencies": {
 		"@eslint/js": "^9.27.0",
 		"eslint": "^9.27.0",

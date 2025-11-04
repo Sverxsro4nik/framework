@@ -11,7 +11,8 @@ export default {
 	],
 	output: {
 		file: 'dist/index.js',
-		format: 'esm',
+		format: 'umd',
+		name: 'SverxRuntime',
 		sourcemap: true,
 		plugins: [filesize()],
 	},
