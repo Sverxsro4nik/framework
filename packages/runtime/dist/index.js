@@ -1,13 +1,14 @@
 (function (global, factory) {
-	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-	typeof define === 'function' && define.amd ? define(['exports'], factory) :
-	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.SverxRuntime = {}));
-})(this, (function (exports) { 'use strict';
+	typeof exports === 'object' && typeof module !== 'undefined'
+		? factory(exports)
+		: typeof define === 'function' && define.amd
+		? define(['exports'], factory)
+		: ((global = typeof globalThis !== 'undefined' ? globalThis : global || self), factory((global.SverxRuntime = {})));
+})(this, function (exports) {
+	'use strict';
 
 	function withoutNulls(array) {
-		return array
-			.filter(element => element !== null)
-			.filter(element => element !== undefined);
+		return array.filter((element) => element !== null).filter((element) => element !== undefined);
 	}
 
 	const DOM_TYPES = {
@@ -24,9 +25,7 @@
 		};
 	}
 	function mapTextNodes(children) {
-		return children.map(child =>
-			typeof child === 'string' ? hString(child) : child
-		);
+		return children.map((child) => (typeof child === 'string' ? hString(child) : child));
 	}
 	function hString(str) {
 		return { type: DOM_TYPES.TEXT, value: str };
@@ -126,11 +125,11 @@
 		}
 		dispatch(commandName, payload) {
 			if (this.#subs.has(commandName)) {
-				this.#subs.get(commandName).forEach(handler => handler(payload));
+				this.#subs.get(commandName).forEach((handler) => handler(payload));
 			} else {
 				console.warn(`No handlers for command: ${commandName}`);
 			}
-			this.#afterHandlers.forEach(handler => handler());
+			this.#afterHandlers.forEach((handler) => handler());
 		}
 	}
 
@@ -199,7 +198,7 @@
 	function createFragmentNodes(vdom, parentEl) {
 		const { children } = vdom;
 		vdom.el = parentEl;
-		children.forEach(element => {
+		children.forEach((element) => {
 			mountDOM(element, parentEl);
 		});
 	}
@@ -208,7 +207,7 @@
 		const element = document.createElement(tag);
 		addProps(element, props, vdom);
 		vdom.el = element;
-		children.forEach(child => mountDOM(child, element));
+		children.forEach((child) => mountDOM(child, element));
 		parentEl.append(element);
 	}
 	function addProps(el, props, vdom) {
@@ -227,7 +226,7 @@
 		}
 		for (const actionName in reducers) {
 			const reducer = reducers[actionName];
-			const subs = dispatcher.subscribe(actionName, payload => {
+			const subs = dispatcher.subscribe(actionName, (payload) => {
 				state = reducer(state, payload);
 			});
 			subscriptions.push(subs);
@@ -247,7 +246,7 @@
 			unmount() {
 				destroyDOM(vdom);
 				vdom = null;
-				subscriptions.forEach(unsubscribe => unsubscribe());
+				subscriptions.forEach((unsubscribe) => unsubscribe());
 			},
 		};
 	}
@@ -256,6 +255,5 @@
 	exports.h = h;
 	exports.hFragment = hFragment;
 	exports.hString = hString;
-
-}));
+});
 //# sourceMappingURL=index.js.map
