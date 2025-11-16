@@ -21,7 +21,7 @@ class ArrayWithOriginalIndices {
 	#originalIndices = [];
 	#equalsFn;
 
-	constructor(array, originalIndices, equalsFn) {
+	constructor(array, equalsFn) {
 		this.#array = [...array];
 		this.#originalIndices = array.map((_, index) => index);
 		this.#equalsFn = equalsFn;
@@ -135,6 +135,13 @@ class ArrayWithOriginalIndices {
 
 export function arraysDiffSequence(oldArray, newArray, equalsFn = (a, b) => a === b) {
 	const sequence = [];
+
+	if (!oldArray || !Array.isArray(oldArray)) {
+		oldArray = [];
+	}
+	if (!newArray || !Array.isArray(newArray)) {
+		newArray = [];
+	}
 
 	const array = new ArrayWithOriginalIndices(oldArray, equalsFn);
 

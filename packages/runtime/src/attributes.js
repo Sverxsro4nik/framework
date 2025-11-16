@@ -27,11 +27,11 @@ function setClass(el, className) {
 	}
 }
 
-function setStyle(el, name, value) {
+export function setStyle(el, name, value) {
 	el.style[name] = value;
 }
 
-function removeStyle(el, name) {
+export function removeStyle(el, name) {
 	el.style[name] = null;
 }
 

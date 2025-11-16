@@ -1,14 +1,145 @@
 (function (global, factory) {
-	typeof exports === 'object' && typeof module !== 'undefined'
-		? factory(exports)
-		: typeof define === 'function' && define.amd
-		? define(['exports'], factory)
-		: ((global = typeof globalThis !== 'undefined' ? globalThis : global || self), factory((global.SverxRuntime = {})));
-})(this, function (exports) {
-	'use strict';
+	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
+	typeof define === 'function' && define.amd ? define(['exports'], factory) :
+	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.SverxRuntime = {}));
+})(this, (function (exports) { 'use strict';
 
+	const ARRAY_DIFF_OP = {
+		ADD: 'add',
+		REMOVE: 'remove',
+		MOVE: 'move',
+		NOOP: 'noop',
+	};
 	function withoutNulls(array) {
 		return array.filter((element) => element !== null).filter((element) => element !== undefined);
+	}
+	function arraysDiff(oldArray, newArray) {
+		return {
+			added: newArray.filter((element) => !oldArray.includes(element)),
+			removed: oldArray.filter((element) => !newArray.includes(element)),
+		};
+	}
+	class ArrayWithOriginalIndices {
+		#array = [];
+		#originalIndices = [];
+		#equalsFn;
+		constructor(array, equalsFn) {
+			this.#array = [...array];
+			this.#originalIndices = array.map((_, index) => index);
+			this.#equalsFn = equalsFn;
+		}
+		get length() {
+			return this.#array.length;
+		}
+		isRemoval(index, newArray) {
+			if (index >= this.length) {
+				return false;
+			}
+			const item = this.#array[index];
+			const indexInNewArray = newArray.findIndex((element) => this.#equalsFn(element, item));
+			return indexInNewArray === -1;
+		}
+		removeItem(index) {
+			const operation = {
+				op: ARRAY_DIFF_OP.REMOVE,
+				index,
+				item: this.#array[index],
+			};
+			this.#array.splice(index, 1);
+			this.#originalIndices.splice(index, 1);
+			return operation;
+		}
+		isNoop(index, newArray) {
+			if (index >= this.length) {
+				return false;
+			}
+			const item = this.#array[index];
+			const newItem = newArray[index];
+			return this.#equalsFn(item, newItem);
+		}
+		originalIndexAt(index) {
+			return this.#originalIndices[index];
+		}
+		noopItem(index) {
+			return {
+				op: ARRAY_DIFF_OP.NOOP,
+				originalIndex: this.originalIndexAt(index),
+				index,
+				item: this.#array[index],
+			};
+		}
+		isAddition(item, fromIdx) {
+			return this.findIndexFrom(item, fromIdx) === -1;
+		}
+		findIndexFrom(index, fromIdx) {
+			for (let i = fromIdx; i < this.length; i++) {
+				if (this.#equalsFn(this.#array[i], index)) {
+					return i;
+				}
+			}
+			return -1;
+		}
+		addItem(item, index) {
+			const operation = {
+				op: ARRAY_DIFF_OP.ADD,
+				index,
+				item,
+			};
+			this.#array.splice(index, 0, item);
+			this.#originalIndices.splice(index, 0, -1);
+			return operation;
+		}
+		moveItem(item, toIndex) {
+			const fromIndex = this.findIndexFrom(item, toIndex);
+			const operation = {
+				op: ARRAY_DIFF_OP.MOVE,
+				originalIndex: this.originalIndexAt(fromIndex),
+				from: fromIndex,
+				index: toIndex,
+				item: this.#array[fromIndex],
+			};
+			const [_item] = this.#array.splice(fromIndex, 1);
+			this.#array.splice(toIndex, 0, _item);
+			const [originalIndex] = this.#originalIndices.splice(fromIndex, 1);
+			this.#originalIndices.splice(toIndex, 0, originalIndex);
+			return operation;
+		}
+		removeItemsAfter(index) {
+			const operations = [];
+			while (this.length > index) {
+				operations.push(this.removeItem(index));
+			}
+			return operations;
+		}
+	}
+	function arraysDiffSequence(oldArray, newArray, equalsFn = (a, b) => a === b) {
+		const sequence = [];
+		if (!oldArray || !Array.isArray(oldArray)) {
+			oldArray = [];
+		}
+		if (!newArray || !Array.isArray(newArray)) {
+			newArray = [];
+		}
+		const array = new ArrayWithOriginalIndices(oldArray, equalsFn);
+		for (let index = 0; index < newArray.length; index++) {
+			if (array.isRemoval(index, newArray)) {
+				sequence.push(array.removeItem(index));
+				index--;
+				continue;
+			}
+			if (array.isNoop(index, newArray)) {
+				sequence.push(array.noopItem(index));
+				continue;
+			}
+			const item = newArray[index];
+			if (array.isAddition(item, index)) {
+				sequence.push(array.addItem(item, index));
+				continue;
+			}
+			sequence.push(array.moveItem(item, index));
+		}
+		sequence.push(...array.removeItemsAfter(newArray.length));
+		return sequence;
 	}
 
 	const DOM_TYPES = {
@@ -36,11 +167,20 @@
 			children: mapTextNodes(withoutNulls(vNodes)),
 		};
 	}
-	h('form', { class: 'login-form', action: 'login' }, [
-		h('input', { type: 'text', name: 'user' }),
-		h('input', { type: 'password', name: 'pass' }),
-		h('button', { on: { click: 'login' } }, ['Log in']),
-	]);
+	function extractChildren(vdom) {
+		if (vdom.children === null || vdom.children === undefined) {
+			return [];
+		}
+		const children = [];
+		for (const child of vdom.children) {
+			if (child.type === DOM_TYPES.FRAGMENT) {
+				children.push(...extractChildren(child));
+			} else {
+				children.push(child);
+			}
+		}
+		return children;
+	}
 
 	function addEventListener(eventName, handler, el) {
 		el.addEventListener(eventName, handler);
@@ -125,11 +265,11 @@
 		}
 		dispatch(commandName, payload) {
 			if (this.#subs.has(commandName)) {
-				this.#subs.get(commandName).forEach((handler) => handler(payload));
+				this.#subs.get(commandName).forEach(handler => handler(payload));
 			} else {
 				console.warn(`No handlers for command: ${commandName}`);
 			}
-			this.#afterHandlers.forEach((handler) => handler());
+			this.#afterHandlers.forEach(handler => handler());
 		}
 	}
 
@@ -159,6 +299,9 @@
 	function setStyle(el, name, value) {
 		el.style[name] = value;
 	}
+	function removeStyle(el, name) {
+		el.style[name] = null;
+	}
 	function setAttribute(el, name, value) {
 		if (value === null) {
 			removeAttribute(el, name);
@@ -173,52 +316,216 @@
 		el.removeAttribute(name);
 	}
 
-	function mountDOM(vdom, parentEl) {
+	function mountDOM(vdom, parentEl, index) {
 		switch (vdom.type) {
 			case DOM_TYPES.TEXT: {
-				createTextNode(vdom, parentEl);
+				createTextNode(vdom, parentEl, index);
 				break;
 			}
 			case DOM_TYPES.ELEMENT: {
-				createElementNode(vdom, parentEl);
+				createElementNode(vdom, parentEl, index);
 				break;
 			}
 			case DOM_TYPES.FRAGMENT: {
-				createFragmentNodes(vdom, parentEl);
+				createFragmentNodes(vdom, parentEl, index);
 				break;
 			}
 		}
 	}
-	function createTextNode(vdom, parentEl) {
+	function createTextNode(vdom, parentEl, index) {
 		const { value } = vdom;
 		const textNode = document.createTextNode(value);
 		vdom.el = textNode;
-		parentEl.append(textNode);
+		insert(textNode, parentEl, index);
 	}
-	function createFragmentNodes(vdom, parentEl) {
+	function createFragmentNodes(vdom, parentEl, index) {
 		const { children } = vdom;
 		vdom.el = parentEl;
-		children.forEach((element) => {
-			mountDOM(element, parentEl);
+		children.forEach((element, i) => {
+			mountDOM(element, parentEl, index ? index + i : null);
 		});
 	}
-	function createElementNode(vdom, parentEl) {
+	function createElementNode(vdom, parentEl, index) {
 		const { tag, props, children = [] } = vdom;
 		const element = document.createElement(tag);
 		addProps(element, props, vdom);
 		vdom.el = element;
 		children.forEach((child) => mountDOM(child, element));
-		parentEl.append(element);
+		insert(element, parentEl, index);
 	}
 	function addProps(el, props, vdom) {
 		const { on: events, ...attrs } = props || {};
 		vdom.listeners = addEventListeners(el, events);
 		setAttributes(el, attrs);
 	}
+	function insert(el, parentEl, index) {
+		if (index === undefined || index === null) {
+			parentEl.append(el);
+			return;
+		}
+		if (index < 0) {
+			throw new Error(`Index must be a positive integer, got ${index}`);
+		}
+		const children = parentEl.childNodes;
+		if (index >= children.length) {
+			parentEl.append(el);
+		} else {
+			parentEl.insertBefore(el, children[index]);
+		}
+	}
+
+	function areNodesEqual(nodeOne, nodeTwo) {
+		if (nodeOne.type !== nodeTwo.type) {
+			return false;
+		}
+		if (nodeOne.type === DOM_TYPES.ELEMENT) {
+			const { tag: tagOne } = nodeOne;
+			const { tag: tagTwo } = nodeTwo;
+			return tagOne === tagTwo;
+		}
+	}
+
+	function objectsDiff(oldObj, newObj) {
+		const oldKeys = Object.keys(oldObj);
+		const newKeys = Object.keys(newObj);
+		return {
+			added: newKeys.filter((key) => !(key in oldObj)),
+			removed: oldKeys.filter((key) => !(key in newObj)),
+			updated: newKeys.filter((key) => key in oldObj && oldObj[key] !== newObj[key]),
+		};
+	}
+
+	function isNotEmptyString(str) {
+		return str !== '';
+	}
+	function isNotBlankOrEmptyString(str) {
+		return isNotEmptyString(str.trim());
+	}
+
+	function patchDOM(oldVdom, newVdom, parentEl) {
+		if (!areNodesEqual(oldVdom, newVdom)) {
+			const index = findIndexInParent(parentEl, oldVdom.el);
+			destroyDOM(oldVdom);
+			mountDOM(newVdom, parentEl, index);
+			return newVdom;
+		}
+		newVdom.el = oldVdom.el;
+		switch (newVdom.type) {
+			case DOM_TYPES.TEXT: {
+				patchText(oldVdom, newVdom);
+				return newVdom;
+			}
+			case DOM_TYPES.ELEMENT: {
+				patchElement(oldVdom, newVdom);
+				break;
+			}
+		}
+		patchChildren(oldVdom, newVdom);
+		return newVdom;
+	}
+	function findIndexInParent(parentEl, el) {
+		const index = Array.from(parentEl.childNodes).indexOf(el);
+		return index === -1 ? null : index;
+	}
+	function patchText(oldVdom, newVdom) {
+		const el = oldVdom.el;
+		const { value: oldText } = oldVdom;
+		const { value: newText } = newVdom;
+		if (oldText !== newText) {
+			el.textContent = newText;
+		}
+	}
+	function patchElement(oldVdom, newVdom) {
+		const el = oldVdom.el;
+		const { class: oldClass, style: oldStyle, on: oldEvents, ...oldAttrs } = oldVdom.props;
+		const { class: newClass, style: newStyle, on: newEvents, ...newAttrs } = newVdom.props;
+		const { listeners: oldListeners } = oldVdom;
+		patchAttrs(el, oldAttrs, newAttrs);
+		patchClasses(el, oldClass, newClass);
+		patchStyle(el, oldStyle, newStyle);
+		newVdom.listeners = patchEvents(el, oldListeners, oldEvents, newEvents);
+	}
+	function patchAttrs(el, oldAttrs, newAttrs) {
+		const { added, removed, updated } = objectsDiff(oldAttrs, newAttrs);
+		for (const key of removed) {
+			removeAttribute(el, key);
+		}
+		for (const attr of added.concat(updated)) {
+			setAttributes(el, attr, newAttrs[attr]);
+		}
+	}
+	function patchClasses(el, oldClass, newClass) {
+		const oldClasses = toClassList(oldClass);
+		const newClasses = toClassList(newClass);
+		const { added, removed } = arraysDiff(oldClasses, newClasses);
+		if (removed.length) {
+			el.classList.remove(...removed);
+		}
+		if (added.length) {
+			el.classList.add(...added);
+		}
+	}
+	function toClassList(classes = '') {
+		return Array.isArray(classes) ? classes.filter(isNotBlankOrEmptyString) : classes.split(/(\s+)/).filter(isNotBlankOrEmptyString);
+	}
+	function patchStyle(el, oldStyle = {}, newStyle = {}) {
+		const { added, removed, updated } = objectsDiff(oldStyle, newStyle);
+		for (const key of removed) {
+			removeStyle(el, key);
+		}
+		for (const style of added.concat(updated)) {
+			setStyle(el, style, newStyle[style]);
+		}
+	}
+	function patchEvents(el, oldListeners = {}, oldEvents = {}, newEvents = {}) {
+		const { added, removed, updated } = objectsDiff(oldEvents, newEvents);
+		for (const key of removed.concat(updated)) {
+			el.removeEventListener(key, oldListeners[key]);
+		}
+		const addedListeners = {};
+		for (const eventName of added.concat(updated)) {
+			const listener = addEventListener(eventName, newEvents[eventName], el);
+			addedListeners[eventName] = listener;
+		}
+		return addedListeners;
+	}
+	function patchChildren(oldVdom, newVdom) {
+		const newChildren = extractChildren(newVdom);
+		const oldChildren = extractChildren(oldVdom);
+		const parentEl = oldVdom.el;
+		const diffSeq = arraysDiffSequence(oldChildren, newChildren, areNodesEqual);
+		for (const operation of diffSeq) {
+			const { originalIndex, index, item } = operation;
+			switch (operation.op) {
+				case ARRAY_DIFF_OP.ADD: {
+					mountDOM(item, parentEl, index);
+					break;
+				}
+				case ARRAY_DIFF_OP.REMOVE: {
+					destroyDOM(item);
+					break;
+				}
+				case ARRAY_DIFF_OP.MOVE: {
+					const oldChild = oldChildren[originalIndex];
+					const newChild = newChildren[index];
+					const el = oldChild.el;
+					const elAtTargetIndex = parentEl.childNodes[index];
+					parentEl.insertBefore(el, elAtTargetIndex);
+					patchDOM(oldChild, newChild, parentEl);
+					break;
+				}
+				case ARRAY_DIFF_OP.NOOP: {
+					patchDOM(oldChildren[originalIndex], newChildren[index], parentEl);
+					break;
+				}
+			}
+		}
+	}
 
 	function createApp({ state, view, reducers = {} }) {
 		let parentEl = null;
 		let vdom = null;
+		let isMounted = false;
 		const dispatcher = new Dispatcher();
 		const subscriptions = [dispatcher.afterEveryCommand(renderApp)];
 		function emit(eventName, payload) {
@@ -232,21 +539,24 @@
 			subscriptions.push(subs);
 		}
 		function renderApp() {
-			if (vdom) {
-				destroyDOM(vdom);
-			}
-			vdom = view(state, emit);
-			mountDOM(vdom, parentEl);
+			const newVdom = view(state, emit);
+			vdom = patchDOM(vdom, newVdom, parentEl);
 		}
 		return {
 			mount(_parentEl) {
+				if (isMounted) {
+					throw new Error('App already mounted');
+				}
 				parentEl = _parentEl;
-				renderApp();
+				vdom = view(state, emit);
+				mountDOM(vdom, parentEl);
+				isMounted = true;
 			},
 			unmount() {
 				destroyDOM(vdom);
 				vdom = null;
 				subscriptions.forEach((unsubscribe) => unsubscribe());
+				isMounted = false;
 			},
 		};
 	}
@@ -255,5 +565,6 @@
 	exports.h = h;
 	exports.hFragment = hFragment;
 	exports.hString = hString;
-});
+
+}));
 //# sourceMappingURL=index.js.map
