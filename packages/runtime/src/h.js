@@ -31,7 +31,7 @@ export function hFragment(vNodes) {
 }
 
 export function extractChildren(vdom) {
-	if (vdom.children === null || vdom.children === undefined) {
+	if (vdom.childer === null) {
 		return [];
 	}
 
@@ -39,11 +39,9 @@ export function extractChildren(vdom) {
 
 	for (const child of vdom.children) {
 		if (child.type === DOM_TYPES.FRAGMENT) {
-			children.push(...extractChildren(child));
+			children.push(...extractChildren(child, children));
 		} else {
 			children.push(child);
 		}
 	}
-
-	return children;
 }
