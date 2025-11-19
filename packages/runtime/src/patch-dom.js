@@ -1,7 +1,7 @@
 import { removeAttribute, removeStyle, setAttributes, setStyle } from './attributes';
 import { destroyDOM } from './destroy-dom';
 import { addEventListener } from './events';
-import { DOM_TYPES, extractChildren, h } from './h';
+import { DOM_TYPES, extractChildren } from './h';
 import { mountDOM } from './mount-dom';
 import { areNodesEqual } from './node-equal';
 import { ARRAY_DIFF_OP, arraysDiff, arraysDiffSequence } from './utils/arrays';
@@ -12,7 +12,7 @@ export function patchDOM(oldVdom, newVdom, parentEl, hostComponent = null) {
 	if (!areNodesEqual(oldVdom, newVdom)) {
 		const index = findIndexInParent(parentEl, oldVdom.el);
 		destroyDOM(oldVdom);
-		mountDOM(newVdom, parentEl, index);
+		mountDOM(newVdom, parentEl, index, hostComponent);
 
 		return newVdom;
 	}
@@ -24,7 +24,7 @@ export function patchDOM(oldVdom, newVdom, parentEl, hostComponent = null) {
 			return newVdom;
 		}
 		case DOM_TYPES.ELEMENT: {
-			patchElement(oldVdom, newVdom);
+			patchElement(oldVdom, newVdom, hostComponent);
 			break;
 		}
 	}
@@ -50,7 +50,7 @@ function patchText(oldVdom, newVdom) {
 	}
 }
 
-function patchElement(oldVdom, newVdom) {
+function patchElement(oldVdom, newVdom, hostComponent) {
 	const el = oldVdom.el;
 	const { class: oldClass, style: oldStyle, on: oldEvents, ...oldAttrs } = oldVdom.props;
 	const { class: newClass, style: newStyle, on: newEvents, ...newAttrs } = newVdom.props;
@@ -59,7 +59,7 @@ function patchElement(oldVdom, newVdom) {
 	patchAttrs(el, oldAttrs, newAttrs);
 	patchClasses(el, oldClass, newClass);
 	patchStyle(el, oldStyle, newStyle);
-	newVdom.listeners = patchEvents(el, oldListeners, oldEvents, newEvents);
+	newVdom.listeners = patchEvents(el, oldListeners, oldEvents, newEvents, hostComponent);
 }
 
 function patchAttrs(el, oldAttrs, newAttrs) {
@@ -105,7 +105,7 @@ function patchStyle(el, oldStyle = {}, newStyle = {}) {
 	}
 }
 
-function patchEvents(el, oldListeners = {}, oldEvents = {}, newEvents = {}) {
+function patchEvents(el, hostComponent, oldListeners = {}, oldEvents = {}, newEvents = {}) {
 	const { added, removed, updated } = objectsDiff(oldEvents, newEvents);
 
 	for (const key of removed.concat(updated)) {
@@ -115,7 +115,7 @@ function patchEvents(el, oldListeners = {}, oldEvents = {}, newEvents = {}) {
 	const addedListeners = {};
 
 	for (const eventName of added.concat(updated)) {
-		const listener = addEventListener(eventName, newEvents[eventName], el);
+		const listener = addEventListener(eventName, newEvents[eventName], el, hostComponent);
 		addedListeners[eventName] = listener;
 	}
 
