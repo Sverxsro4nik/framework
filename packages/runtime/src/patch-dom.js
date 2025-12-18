@@ -4,6 +4,7 @@ import { addEventListener } from './events';
 import { DOM_TYPES, extractChildren } from './h';
 import { mountDOM } from './mount-dom';
 import { areNodesEqual } from './node-equal';
+import { extractPropsAndEvents } from './props';
 import { ARRAY_DIFF_OP, arraysDiff, arraysDiffSequence } from './utils/arrays';
 import { objectsDiff } from './utils/objects';
 import { isNotBlankOrEmptyString } from './utils/strings';
@@ -25,6 +26,10 @@ export function patchDOM(oldVdom, newVdom, parentEl, hostComponent = null) {
 		}
 		case DOM_TYPES.ELEMENT: {
 			patchElement(oldVdom, newVdom, hostComponent);
+			break;
+		}
+		case DOM_TYPES.COMPONENT: {
+			patchComponent(oldVdom, newVdom, hostComponent);
 			break;
 		}
 	}
@@ -158,4 +163,13 @@ function patchChildren(oldVdom, newVdom, hostComponent) {
 			}
 		}
 	}
+}
+
+function patchComponent(oldVdom, newVdom) {
+	const { component } = oldVdom;
+	const { props } = extractPropsAndEvents(newVdom);
+
+	component.updateProps(props);
+	newVdom.component = component;
+	newVdom.el = component.firstElement;
 }
