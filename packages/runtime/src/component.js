@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal';
+import { equal } from 'fast-deep-equal';
 import { destroyDOM } from './destroy-dom';
 import { Dispatcher } from './dispatcher';
 import { DOM_TYPES, extractChildren } from './h';

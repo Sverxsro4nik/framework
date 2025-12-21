@@ -4,9 +4,9 @@ import { addEventListener } from './events';
 import { DOM_TYPES, extractChildren } from './h';
 import { mountDOM } from './mount-dom';
 import { areNodesEqual } from './node-equal';
-import { extractPropsAndEvents } from './props';
 import { ARRAY_DIFF_OP, arraysDiff, arraysDiffSequence } from './utils/arrays';
 import { objectsDiff } from './utils/objects';
+import { extractPropsAndEvents } from './utils/props';
 import { isNotBlankOrEmptyString } from './utils/strings';
 
 export function patchDOM(oldVdom, newVdom, parentEl, hostComponent = null) {
