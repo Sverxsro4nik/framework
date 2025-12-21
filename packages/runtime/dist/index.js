@@ -1,8 +1,8 @@
 (function (global, factory) {
-	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-	typeof define === 'function' && define.amd ? define(['exports'], factory) :
-	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.SverxRuntime = {}));
-})(this, (function (exports) { 'use strict';
+	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('fast-deep-equal')) :
+	typeof define === 'function' && define.amd ? define(['exports', 'fast-deep-equal'], factory) :
+	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.SverxRuntime = {}, global.fastDeepEqual));
+})(this, (function (exports, fastDeepEqual) { 'use strict';
 
 	const ARRAY_DIFF_OP = {
 		ADD: 'add',
@@ -23,7 +23,7 @@
 		#array = [];
 		#originalIndices = [];
 		#equalsFn;
-		constructor(array, equalsFn) {
+		constructor(array, originalIndices, equalsFn) {
 			this.#array = [...array];
 			this.#originalIndices = array.map((_, index) => index);
 			this.#equalsFn = equalsFn;
@@ -114,12 +114,6 @@
 	}
 	function arraysDiffSequence(oldArray, newArray, equalsFn = (a, b) => a === b) {
 		const sequence = [];
-		if (!oldArray || !Array.isArray(oldArray)) {
-			oldArray = [];
-		}
-		if (!newArray || !Array.isArray(newArray)) {
-			newArray = [];
-		}
 		const array = new ArrayWithOriginalIndices(oldArray, equalsFn);
 		for (let index = 0; index < newArray.length; index++) {
 			if (array.isRemoval(index, newArray)) {
@@ -146,13 +140,15 @@
 		TEXT: 'text',
 		ELEMENT: 'element',
 		FRAGMENT: 'fragment',
+		COMPONENT: 'component',
 	};
 	function h(tag, props = {}, children = []) {
+		const type = typeof tag === 'string' ? DOM_TYPES.ELEMENT : DOM_TYPES.COMPONENT;
 		return {
 			tag,
 			props,
+			type,
 			children: mapTextNodes(withoutNulls(children)),
-			type: DOM_TYPES.ELEMENT,
 		};
 	}
 	function mapTextNodes(children) {
@@ -168,7 +164,7 @@
 		};
 	}
 	function extractChildren(vdom) {
-		if (vdom.children === null || vdom.children === undefined) {
+		if (vdom.childer === null) {
 			return [];
 		}
 		const children = [];
@@ -179,17 +175,19 @@
 				children.push(child);
 			}
 		}
-		return children;
 	}
 
-	function addEventListener(eventName, handler, el) {
-		el.addEventListener(eventName, handler);
-		return handler;
+	function addEventListener(eventName, handler, el, hostComponent = null) {
+		function boundHandler(){
+			hostComponent ? handler.apply(hostComponent, arguments) : handler( ...arguments);
+		}
+		el.addEventListener(eventName, boundHandler);
+		return boundHandler;
 	}
-	function addEventListeners(el, listeners = {}) {
+	function addEventListeners(el, listeners = {}, hostComponent = null) {
 		const addedListeners = {};
 		Object.entries(listeners).forEach(([eventName, handler]) => {
-			const listener = addEventListener(eventName, handler, el);
+			const listener = addEventListener(eventName, handler, el, hostComponent);
 			addedListeners[eventName] = listener;
 		});
 		return addedListeners;
@@ -215,6 +213,10 @@
 				removeFragmentNodes(vdom);
 				break;
 			}
+			case DOM_TYPES.COMPONENT: {
+				vdom.component.unmount();
+				break;
+			}
 			default: {
 				throw new Error(`Can't destroy DOM of type: ${type}`);
 			}
@@ -237,40 +239,6 @@
 	function removeFragmentNodes(vdom) {
 		const { children } = vdom;
 		children.forEach(destroyDOM);
-	}
-
-	class Dispatcher {
-		#subs = new Map();
-		#afterHandlers = [];
-		subscribe(commandName, handler) {
-			if (!this.#subs.has(commandName)) {
-				this.#subs.set(commandName, []);
-			}
-			const handlers = this.#subs.get(commandName);
-			if (handlers.includes(handler)) {
-				return () => {};
-			}
-			handlers.push(handler);
-			return () => {
-				const idx = handlers.indexOf(handler);
-				handlers.splice(idx, 1);
-			};
-		}
-		afterEveryCommand(handler) {
-			this.#afterHandlers.push(handler);
-			return () => {
-				const idx = this.#afterHandlers.indexOf(handler);
-				this.#afterHandlers.splice(idx, 1);
-			};
-		}
-		dispatch(commandName, payload) {
-			if (this.#subs.has(commandName)) {
-				this.#subs.get(commandName).forEach(handler => handler(payload));
-			} else {
-				console.warn(`No handlers for command: ${commandName}`);
-			}
-			this.#afterHandlers.forEach(handler => handler());
-		}
 	}
 
 	function setAttributes(el, attrs) {
@@ -316,18 +284,28 @@
 		el.removeAttribute(name);
 	}
 
-	function mountDOM(vdom, parentEl, index) {
+	function extractPropsAndEvents(vdom) {
+		const { on: events = {}, ...props } = vdom.props;
+		delete props.key;
+		return { props, events };
+	}
+
+	function mountDOM(vdom, parentEl, index, hostComponent = null) {
 		switch (vdom.type) {
 			case DOM_TYPES.TEXT: {
 				createTextNode(vdom, parentEl, index);
 				break;
 			}
 			case DOM_TYPES.ELEMENT: {
-				createElementNode(vdom, parentEl, index);
+				createElementNode(vdom, parentEl, index, hostComponent);
 				break;
 			}
 			case DOM_TYPES.FRAGMENT: {
-				createFragmentNodes(vdom, parentEl, index);
+				createFragmentNodes(vdom, parentEl, index, hostComponent);
+				break;
+			}
+			case DOM_TYPES.COMPONENT: {
+				createComponentNode(vdom, parentEl, index, hostComponent);
 				break;
 			}
 		}
@@ -338,24 +316,24 @@
 		vdom.el = textNode;
 		insert(textNode, parentEl, index);
 	}
-	function createFragmentNodes(vdom, parentEl, index) {
+	function createFragmentNodes(vdom, parentEl, index, hostComponent) {
 		const { children } = vdom;
 		vdom.el = parentEl;
 		children.forEach((element, i) => {
-			mountDOM(element, parentEl, index ? index + i : null);
+			mountDOM(element, parentEl, index ? index + i : null, hostComponent);
 		});
 	}
-	function createElementNode(vdom, parentEl, index) {
-		const { tag, props, children = [] } = vdom;
+	function createElementNode(vdom, parentEl, index, hostComponent) {
+		const { tag, children = [] } = vdom;
 		const element = document.createElement(tag);
-		addProps(element, props, vdom);
+		addProps(element, vdom, hostComponent);
 		vdom.el = element;
-		children.forEach((child) => mountDOM(child, element));
+		children.forEach((child) => mountDOM(child, element, null, hostComponent));
 		insert(element, parentEl, index);
 	}
-	function addProps(el, props, vdom) {
-		const { on: events, ...attrs } = props || {};
-		vdom.listeners = addEventListeners(el, events);
+	function addProps(el, props, vdom, hostComponent) {
+		const { props: attrs, events } = extractPropsAndEvents(vdom);
+		vdom.listeners = addEventListeners(el, events, hostComponent);
 		setAttributes(el, attrs);
 	}
 	function insert(el, parentEl, index) {
@@ -373,16 +351,104 @@
 			parentEl.insertBefore(el, children[index]);
 		}
 	}
+	function createComponentNode(vdom, parentEl, index, hostComponent) {
+		const Component = vdom.tag;
+		const { props, events } = extractPropsAndEvents(vdom);
+		const component = new Component(props, events, hostComponent);
+		component.mount(parentEl, index);
+		vdom.el = component.firstElement;
+	}
+
+	function createApp(RootComponent, props = {}) {
+		let parentEl = null;
+		let vdom = null;
+		let isMounted = false;
+		function reset() {
+			parentEl = null;
+			isMounted = false;
+			vdom = null;
+		}
+		return {
+			mount(_parentEl) {
+				if (isMounted) {
+					throw new Error('App is already mounted');
+				}
+				parentEl = _parentEl;
+				vdom = h(RootComponent, props);
+				mountDOM(vdom, parentEl);
+				isMounted = true;
+			},
+			unmount() {
+				if (!isMounted) {
+					throw new Error('App is not mounted');
+				}
+				destroyDOM(vdom);
+				reset();
+			},
+		};
+	}
+
+	class Dispatcher {
+		#subs = new Map();
+		#afterHandlers = [];
+		subscribe(commandName, handler) {
+			if (!this.#subs.has(commandName)) {
+				this.#subs.set(commandName, []);
+			}
+			const handlers = this.#subs.get(commandName);
+			if (handlers.includes(handler)) {
+				return () => {};
+			}
+			handlers.push(handler);
+			return () => {
+				const idx = handlers.indexOf(handler);
+				handlers.splice(idx, 1);
+			};
+		}
+		afterEveryCommand(handler) {
+			this.#afterHandlers.push(handler);
+			return () => {
+				const idx = this.#afterHandlers.indexOf(handler);
+				this.#afterHandlers.splice(idx, 1);
+			};
+		}
+		dispatch(commandName, payload) {
+			if (this.#subs.has(commandName)) {
+				this.#subs.get(commandName).forEach(handler => handler(payload));
+			} else {
+				console.warn(`No handlers for command: ${commandName}`);
+			}
+			this.#afterHandlers.forEach(handler => handler());
+		}
+	}
 
 	function areNodesEqual(nodeOne, nodeTwo) {
 		if (nodeOne.type !== nodeTwo.type) {
 			return false;
 		}
 		if (nodeOne.type === DOM_TYPES.ELEMENT) {
-			const { tag: tagOne } = nodeOne;
-			const { tag: tagTwo } = nodeTwo;
-			return tagOne === tagTwo;
+			const {
+				tag: tagOne,
+				props: { key: keyOne },
+			} = nodeOne;
+			const {
+				tag: tagTwo,
+				props: { key: keyTwo },
+			} = nodeTwo;
+			return tagOne === tagTwo && keyOne === keyTwo;
 		}
+		if (nodeOne.type === DOM_TYPES.COMPONENT) {
+			const {
+				tag: componentOne,
+				props: { key: keyOne },
+			} = nodeOne;
+			const {
+				tag: componentTwo,
+				props: { key: keyTwo },
+			} = nodeTwo;
+			return componentOne === componentTwo && keyOne === keyTwo;
+		}
+		return true;
 	}
 
 	function objectsDiff(oldObj, newObj) {
@@ -394,6 +460,9 @@
 			updated: newKeys.filter((key) => key in oldObj && oldObj[key] !== newObj[key]),
 		};
 	}
+	function hasOwnProperty(obj, prop) {
+		return Object.prototype.hasOwnProperty.call(obj, prop);
+	}
 
 	function isNotEmptyString(str) {
 		return str !== '';
@@ -402,11 +471,11 @@
 		return isNotEmptyString(str.trim());
 	}
 
-	function patchDOM(oldVdom, newVdom, parentEl) {
+	function patchDOM(oldVdom, newVdom, parentEl, hostComponent = null) {
 		if (!areNodesEqual(oldVdom, newVdom)) {
 			const index = findIndexInParent(parentEl, oldVdom.el);
 			destroyDOM(oldVdom);
-			mountDOM(newVdom, parentEl, index);
+			mountDOM(newVdom, parentEl, index, hostComponent);
 			return newVdom;
 		}
 		newVdom.el = oldVdom.el;
@@ -416,11 +485,15 @@
 				return newVdom;
 			}
 			case DOM_TYPES.ELEMENT: {
-				patchElement(oldVdom, newVdom);
+				patchElement(oldVdom, newVdom, hostComponent);
+				break;
+			}
+			case DOM_TYPES.COMPONENT: {
+				patchComponent(oldVdom, newVdom);
 				break;
 			}
 		}
-		patchChildren(oldVdom, newVdom);
+		patchChildren(oldVdom, newVdom, hostComponent);
 		return newVdom;
 	}
 	function findIndexInParent(parentEl, el) {
@@ -435,7 +508,7 @@
 			el.textContent = newText;
 		}
 	}
-	function patchElement(oldVdom, newVdom) {
+	function patchElement(oldVdom, newVdom, hostComponent) {
 		const el = oldVdom.el;
 		const { class: oldClass, style: oldStyle, on: oldEvents, ...oldAttrs } = oldVdom.props;
 		const { class: newClass, style: newStyle, on: newEvents, ...newAttrs } = newVdom.props;
@@ -443,7 +516,7 @@
 		patchAttrs(el, oldAttrs, newAttrs);
 		patchClasses(el, oldClass, newClass);
 		patchStyle(el, oldStyle, newStyle);
-		newVdom.listeners = patchEvents(el, oldListeners, oldEvents, newEvents);
+		newVdom.listeners = patchEvents(el, oldListeners, oldEvents, newEvents, hostComponent);
 	}
 	function patchAttrs(el, oldAttrs, newAttrs) {
 		const { added, removed, updated } = objectsDiff(oldAttrs, newAttrs);
@@ -477,28 +550,29 @@
 			setStyle(el, style, newStyle[style]);
 		}
 	}
-	function patchEvents(el, oldListeners = {}, oldEvents = {}, newEvents = {}) {
+	function patchEvents(el, hostComponent, oldListeners = {}, oldEvents = {}, newEvents = {}) {
 		const { added, removed, updated } = objectsDiff(oldEvents, newEvents);
 		for (const key of removed.concat(updated)) {
 			el.removeEventListener(key, oldListeners[key]);
 		}
 		const addedListeners = {};
 		for (const eventName of added.concat(updated)) {
-			const listener = addEventListener(eventName, newEvents[eventName], el);
+			const listener = addEventListener(eventName, newEvents[eventName], el, hostComponent);
 			addedListeners[eventName] = listener;
 		}
 		return addedListeners;
 	}
-	function patchChildren(oldVdom, newVdom) {
+	function patchChildren(oldVdom, newVdom, hostComponent) {
 		const newChildren = extractChildren(newVdom);
 		const oldChildren = extractChildren(oldVdom);
 		const parentEl = oldVdom.el;
 		const diffSeq = arraysDiffSequence(oldChildren, newChildren, areNodesEqual);
 		for (const operation of diffSeq) {
 			const { originalIndex, index, item } = operation;
+			const offset = hostComponent ? hostComponent.offset : 0;
 			switch (operation.op) {
 				case ARRAY_DIFF_OP.ADD: {
-					mountDOM(item, parentEl, index);
+					mountDOM(item, parentEl, index + offset, hostComponent);
 					break;
 				}
 				case ARRAY_DIFF_OP.REMOVE: {
@@ -509,59 +583,134 @@
 					const oldChild = oldChildren[originalIndex];
 					const newChild = newChildren[index];
 					const el = oldChild.el;
-					const elAtTargetIndex = parentEl.childNodes[index];
+					const elAtTargetIndex = parentEl.childNodes[index + offset];
 					parentEl.insertBefore(el, elAtTargetIndex);
-					patchDOM(oldChild, newChild, parentEl);
+					patchDOM(oldChild, newChild, parentEl, hostComponent);
 					break;
 				}
 				case ARRAY_DIFF_OP.NOOP: {
-					patchDOM(oldChildren[originalIndex], newChildren[index], parentEl);
+					patchDOM(oldChildren[originalIndex], newChildren[index], parentEl, hostComponent);
 					break;
 				}
 			}
 		}
 	}
+	function patchComponent(oldVdom, newVdom) {
+		const { component } = oldVdom;
+		const { props } = extractPropsAndEvents(newVdom);
+		component.updateProps(props);
+		newVdom.component = component;
+		newVdom.el = component.firstElement;
+	}
 
-	function createApp({ state, view, reducers = {} }) {
-		let parentEl = null;
-		let vdom = null;
-		let isMounted = false;
-		const dispatcher = new Dispatcher();
-		const subscriptions = [dispatcher.afterEveryCommand(renderApp)];
-		function emit(eventName, payload) {
-			dispatcher.dispatch(eventName, payload);
-		}
-		for (const actionName in reducers) {
-			const reducer = reducers[actionName];
-			const subs = dispatcher.subscribe(actionName, (payload) => {
-				state = reducer(state, payload);
-			});
-			subscriptions.push(subs);
-		}
-		function renderApp() {
-			const newVdom = view(state, emit);
-			vdom = patchDOM(vdom, newVdom, parentEl);
-		}
-		return {
-			mount(_parentEl) {
-				if (isMounted) {
-					throw new Error('App already mounted');
+	function defineComponent({ render, state, ...methods }) {
+		class Component {
+			#vdom = null;
+			#hostEl = null;
+			#isMounted = false;
+			#eventHandlers = null;
+			#parentComponent = null;
+			#dispatcher = new Dispatcher();
+			#subscriptions = [];
+			constructor(props = {}, eventHandlers = {}, parentComponent = null) {
+				this.props = props;
+				this.state = state ? state(props) : {};
+				this.#eventHandlers = eventHandlers;
+				this.#parentComponent = parentComponent;
+			}
+			#wireEventHandlers() {
+				this.#subscriptions = Object.entries(this.#eventHandlers).map(([eventName, handler]) => {
+					this.#wireEventHandler(eventName, handler);
+				});
+			}
+			#wireEventHandler(eventName, handler) {
+				return this.#dispatcher.subscribe(eventName, (payload) => {
+					if (this.#parentComponent) {
+						handler.call(this.#parentComponent, payload);
+					} else {
+						handler(payload);
+					}
+				});
+			}
+			get elements() {
+				if (this.#vdom === null) return [];
+				if (this.#vdom.type === DOM_TYPES.FRAGMENT) {
+					return extractChildren(this.#vdom).flatMap((child) => {
+						if (child.type === DOM_TYPES.COMPONENT) {
+							return child.elements;
+						}
+						return [child.el];
+					});
 				}
-				parentEl = _parentEl;
-				vdom = view(state, emit);
-				mountDOM(vdom, parentEl);
-				isMounted = true;
-			},
+				return [this.#vdom.el];
+			}
+			get firstElement() {
+				return this.elements[0];
+			}
+			get offset() {
+				if (this.#vdom.type === DOM_TYPES.FRAGMENT) {
+					return Array.from(this.#hostEl.children).indexOf(this.firstElement);
+				}
+				return 0;
+			}
+			render() {
+				return render.call(this);
+			}
+			emit(eventName, payload) {
+				this.#dispatcher.dispatch(eventName, payload);
+			}
+			updateProps(props) {
+				const newProps = { ...this.props, ...props };
+				if (fastDeepEqual.equal(this.props, newProps)) {
+					return;
+				}
+				this.props = newProps;
+				this.#patch();
+			}
+			updateState(state) {
+				this.state = { ...this.state, ...state };
+				this.#patch();
+			}
+			mount(hostEl, index = null) {
+				if (this.#isMounted) {
+					throw new Error('Component is already mounted');
+				}
+				this.#vdom = this.render();
+				mountDOM(this.#vdom, hostEl, index, this);
+				this.#wireEventHandlers();
+				this.#hostEl = hostEl;
+				this.#isMounted = true;
+			}
 			unmount() {
-				destroyDOM(vdom);
-				vdom = null;
-				subscriptions.forEach((unsubscribe) => unsubscribe());
-				isMounted = false;
-			},
-		};
+				if (!this.#isMounted) {
+					throw new Error('Component is not mounted');
+				}
+				destroyDOM(this.#vdom);
+				this.#subscriptions.forEach((unsubscribe) => unsubscribe());
+				this.#hostEl = null;
+				this.#vdom = null;
+				this.#isMounted = false;
+				this.#subscriptions = [];
+			}
+			#patch() {
+				if (!this.#isMounted) {
+					throw new Error('Component is not mounted');
+				}
+				const vdom = this.render();
+				this.#vdom = patchDOM(this.#vdom, vdom, this.#hostEl, this);
+			}
+		}
+		for (const methodName in methods) {
+			if (hasOwnProperty(Component, methodName)) {
+				throw new Error(`Method ${methodName} is already defined on Component`);
+			}
+			Component.prototype[methodName] = methods[methodName];
+		}
+		return Component;
 	}
 
 	exports.createApp = createApp;
+	exports.defineComponent = defineComponent;
 	exports.h = h;
 	exports.hFragment = hFragment;
 	exports.hString = hString;

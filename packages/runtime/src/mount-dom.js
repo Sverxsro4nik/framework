@@ -1,7 +1,7 @@
 import { setAttributes } from './attributes';
 import { addEventListeners } from './events';
 import { DOM_TYPES } from './h';
-import { extractPropsAndEvents } from './props';
+import { extractPropsAndEvents } from './utils/props';
 
 export function mountDOM(vdom, parentEl, index, hostComponent = null) {
 	switch (vdom.type) {
@@ -48,10 +48,10 @@ function createFragmentNodes(vdom, parentEl, index, hostComponent) {
 }
 
 function createElementNode(vdom, parentEl, index, hostComponent) {
-	const { tag, props, children = [] } = vdom;
+	const { tag, children = [] } = vdom;
 
 	const element = document.createElement(tag);
-	addProps(element, props, vdom, hostComponent);
+	addProps(element, vdom, hostComponent);
 	vdom.el = element;
 
 	children.forEach((child) => mountDOM(child, element, null, hostComponent));
@@ -60,8 +60,7 @@ function createElementNode(vdom, parentEl, index, hostComponent) {
 }
 
 function addProps(el, props, vdom, hostComponent) {
-	const { on: events, ...attrs } = props || {};
-
+	const { props: attrs, events } = extractPropsAndEvents(vdom);
 	vdom.listeners = addEventListeners(el, events, hostComponent);
 
 	setAttributes(el, attrs);
