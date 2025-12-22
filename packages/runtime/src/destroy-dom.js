@@ -1,5 +1,6 @@
-import { DOM_TYPES } from './h';
 import { removeEventListeners } from './events';
+import { DOM_TYPES } from './h';
+import { enqueueJobs } from './scheduler.js';
 
 export function destroyDOM(vdom) {
 	const { type } = vdom;
@@ -19,6 +20,7 @@ export function destroyDOM(vdom) {
 		}
 		case DOM_TYPES.COMPONENT: {
 			vdom.component.unmount();
+			enqueueJobs(() => vdom.component.onUnmounted());
 			break;
 		}
 		default: {

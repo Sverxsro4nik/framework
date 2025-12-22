@@ -1,8 +1,29 @@
 (function (global, factory) {
 	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('fast-deep-equal')) :
 	typeof define === 'function' && define.amd ? define(['exports', 'fast-deep-equal'], factory) :
-	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.SverxRuntime = {}, global.fastDeepEqual));
-})(this, (function (exports, fastDeepEqual) { 'use strict';
+	(global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.SverxRuntime = {}, global.equal));
+})(this, (function (exports, equal) { 'use strict';
+
+	function addEventListener(eventName, handler, el, hostComponent = null) {
+		function boundHandler(){
+			hostComponent ? handler.apply(hostComponent, arguments) : handler( ...arguments);
+		}
+		el.addEventListener(eventName, boundHandler);
+		return boundHandler;
+	}
+	function addEventListeners(el, listeners = {}, hostComponent = null) {
+		const addedListeners = {};
+		Object.entries(listeners).forEach(([eventName, handler]) => {
+			const listener = addEventListener(eventName, handler, el, hostComponent);
+			addedListeners[eventName] = listener;
+		});
+		return addedListeners;
+	}
+	function removeEventListeners(el, listeners = {}) {
+		Object.entries(listeners).forEach(([eventName, handler]) => {
+			el.removeEventListener(eventName, handler);
+		});
+	}
 
 	const ARRAY_DIFF_OP = {
 		ADD: 'add',
@@ -177,25 +198,26 @@
 		}
 	}
 
-	function addEventListener(eventName, handler, el, hostComponent = null) {
-		function boundHandler(){
-			hostComponent ? handler.apply(hostComponent, arguments) : handler( ...arguments);
+	let isScheduled = false;
+	const jobs = [];
+	function enqueueJobs(job) {
+		jobs.push(job);
+		scheduleUpdate();
+	}
+	function scheduleUpdate() {
+		if (isScheduled) return;
+		isScheduled = true;
+		queueMicrotask(processJobs);
+	}
+	function processJobs() {
+		while (jobs.length) {
+			const job = jobs.shift();
+			const result = job();
+			Promise.resolve(result)
+				.then()
+				.catch((error) => console.error(`[scheduler]: ${error}`));
 		}
-		el.addEventListener(eventName, boundHandler);
-		return boundHandler;
-	}
-	function addEventListeners(el, listeners = {}, hostComponent = null) {
-		const addedListeners = {};
-		Object.entries(listeners).forEach(([eventName, handler]) => {
-			const listener = addEventListener(eventName, handler, el, hostComponent);
-			addedListeners[eventName] = listener;
-		});
-		return addedListeners;
-	}
-	function removeEventListeners(el, listeners = {}) {
-		Object.entries(listeners).forEach(([eventName, handler]) => {
-			el.removeEventListener(eventName, handler);
-		});
+		isScheduled = false;
 	}
 
 	function destroyDOM(vdom) {
@@ -215,6 +237,7 @@
 			}
 			case DOM_TYPES.COMPONENT: {
 				vdom.component.unmount();
+				enqueueJobs(() => vdom.component.onUnmounted());
 				break;
 			}
 			default: {
@@ -306,6 +329,7 @@
 			}
 			case DOM_TYPES.COMPONENT: {
 				createComponentNode(vdom, parentEl, index, hostComponent);
+				enqueueJobs(() => vdom.component.onMounted());
 				break;
 			}
 		}
@@ -603,7 +627,8 @@
 		newVdom.el = component.firstElement;
 	}
 
-	function defineComponent({ render, state, ...methods }) {
+	const emptyFn = () => {};
+	function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emptyFn, ...methods }) {
 		class Component {
 			#vdom = null;
 			#hostEl = null;
@@ -617,6 +642,12 @@
 				this.state = state ? state(props) : {};
 				this.#eventHandlers = eventHandlers;
 				this.#parentComponent = parentComponent;
+			}
+			onMounted() {
+				return Promise.resolve(onMounted.call(this));
+			}
+			onUnmounted() {
+				return Promise.resolve(onUnmounted.call(this));
 			}
 			#wireEventHandlers() {
 				this.#subscriptions = Object.entries(this.#eventHandlers).map(([eventName, handler]) => {
@@ -661,7 +692,7 @@
 			}
 			updateProps(props) {
 				const newProps = { ...this.props, ...props };
-				if (fastDeepEqual.equal(this.props, newProps)) {
+				if (equal(this.props, newProps)) {
 					return;
 				}
 				this.props = newProps;
