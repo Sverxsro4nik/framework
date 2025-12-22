@@ -1,4 +1,4 @@
-import { equal } from 'fast-deep-equal';
+import equal from 'fast-deep-equal';
 import { destroyDOM } from './destroy-dom';
 import { Dispatcher } from './dispatcher';
 import { DOM_TYPES, extractChildren } from './h';
@@ -6,7 +6,8 @@ import { mountDOM } from './mount-dom';
 import { patchDOM } from './patch-dom';
 import { hasOwnProperty } from './utils/objects';
 
-export function defineComponent({ render, state, ...methods }) {
+const emptyFn = () => {};
+export function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emptyFn, ...methods }) {
 	class Component {
 		#vdom = null;
 		#hostEl = null;
@@ -21,6 +22,14 @@ export function defineComponent({ render, state, ...methods }) {
 			this.state = state ? state(props) : {};
 			this.#eventHandlers = eventHandlers;
 			this.#parentComponent = parentComponent;
+		}
+
+		onMounted() {
+			return Promise.resolve(onMounted.call(this));
+		}
+
+		onUnmounted() {
+			return Promise.resolve(onUnmounted.call(this));
 		}
 
 		#wireEventHandlers() {
