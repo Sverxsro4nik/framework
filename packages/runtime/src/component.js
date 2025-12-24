@@ -1,12 +1,14 @@
 import equal from 'fast-deep-equal';
 import { destroyDOM } from './destroy-dom';
 import { Dispatcher } from './dispatcher';
-import { DOM_TYPES, extractChildren } from './h';
+import { didCreateSlot, DOM_TYPES, extractChildren, resetDidCreateSlot } from './h';
 import { mountDOM } from './mount-dom';
 import { patchDOM } from './patch-dom';
+import { fillSlots } from './slot';
 import { hasOwnProperty } from './utils/objects';
 
 const emptyFn = () => {};
+
 export function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emptyFn, ...methods }) {
 	class Component {
 		#vdom = null;
@@ -17,11 +19,17 @@ export function defineComponent({ render, state, onMounted = emptyFn, onUnmounte
 		#dispatcher = new Dispatcher();
 		#subscriptions = [];
 
+		#children = [];
+
 		constructor(props = {}, eventHandlers = {}, parentComponent = null) {
 			this.props = props;
 			this.state = state ? state(props) : {};
 			this.#eventHandlers = eventHandlers;
 			this.#parentComponent = parentComponent;
+		}
+
+		setExternalChildren(children) {
+			this.#children = children;
 		}
 
 		onMounted() {
@@ -76,7 +84,13 @@ export function defineComponent({ render, state, onMounted = emptyFn, onUnmounte
 		}
 
 		render() {
-			return render.call(this);
+			const vdom = render.call(this);
+			if (didCreateSlot()) {
+				fillSlots(vdom, this.#children);
+				resetDidCreateSlot();
+			}
+
+			return vdom;
 		}
 
 		emit(eventName, payload) {

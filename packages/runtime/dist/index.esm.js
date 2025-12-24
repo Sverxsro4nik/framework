@@ -153,11 +153,13 @@ function arraysDiffSequence(oldArray, newArray, equalsFn = (a, b) => a === b) {
 	return sequence;
 }
 
+let hSlotCalled = false;
 const DOM_TYPES = {
 	TEXT: 'text',
 	ELEMENT: 'element',
 	FRAGMENT: 'fragment',
 	COMPONENT: 'component',
+	SLOT: 'slot',
 };
 function h(tag, props = {}, children = []) {
 	const type = typeof tag === 'string' ? DOM_TYPES.ELEMENT : DOM_TYPES.COMPONENT;
@@ -178,6 +180,19 @@ function hFragment(vNodes) {
 	return {
 		type: DOM_TYPES.FRAGMENT,
 		children: mapTextNodes(withoutNulls(vNodes)),
+	};
+}
+function didCreateSlot() {
+	return hSlotCalled;
+}
+function resetDidCreateSlot() {
+	hSlotCalled = false;
+}
+function hSlot(children = []) {
+	hSlotCalled = true;
+	return {
+		type: DOM_TYPES.SLOT,
+		children,
 	};
 }
 function extractChildren(vdom) {
@@ -379,9 +394,10 @@ function insert(el, parentEl, index) {
 	}
 }
 function createComponentNode(vdom, parentEl, index, hostComponent) {
-	const Component = vdom.tag;
+	const { tag: Component, children } = vdom;
 	const { props, events } = extractPropsAndEvents(vdom);
 	const component = new Component(props, events, hostComponent);
+	component.setExternalContent(children);
 	component.mount(parentEl, index);
 	vdom.el = component.firstElement;
 }
@@ -624,10 +640,41 @@ function patchChildren(oldVdom, newVdom, hostComponent) {
 }
 function patchComponent(oldVdom, newVdom) {
 	const { component } = oldVdom;
+	const { children } = newVdom;
 	const { props } = extractPropsAndEvents(newVdom);
+	component.setExternalContent(children);
 	component.updateProps(props);
 	newVdom.component = component;
 	newVdom.el = component.firstElement;
+}
+
+function traverseDFS(vdom, processNode, shouldSkipBranch = () => false, parentNode = null, index = null) {
+	if (shouldSkipBranch(vdom)) return;
+	processNode(vdom, parentNode, index);
+	if (vdom.children) {
+		vdom.children.forEach((child, i) => traverseDFS(child, processNode, shouldSkipBranch, vdom, i));
+	}
+}
+
+function fillSlots(vdom, externalContent = []) {
+	function processNode(node, parent, index) {
+		insertViewInSlot(node, parent, index, externalContent);
+	}
+	traverseDFS(vdom, processNode, shouldSkipBranch);
+}
+function insertViewInSlot(node, parent, index, externalContent) {
+	if (node.type !== DOM_TYPES.SLOT) return;
+	const defaultContent = node.children;
+	const views = externalContent.length > 0 ? externalContent : defaultContent;
+	const hasContent = views.length > 0;
+	if (hasContent) {
+		parent.children.splice(index, 1, hFragment(views));
+	} else {
+		parent.children.splice(index, 1);
+	}
+}
+function shouldSkipBranch(node) {
+	return node.type === DOM_TYPES.COMPONENT;
 }
 
 const emptyFn = () => {};
@@ -640,11 +687,15 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 		#parentComponent = null;
 		#dispatcher = new Dispatcher();
 		#subscriptions = [];
+		#children = [];
 		constructor(props = {}, eventHandlers = {}, parentComponent = null) {
 			this.props = props;
 			this.state = state ? state(props) : {};
 			this.#eventHandlers = eventHandlers;
 			this.#parentComponent = parentComponent;
+		}
+		setExternalChildren(children) {
+			this.#children = children;
 		}
 		onMounted() {
 			return Promise.resolve(onMounted.call(this));
@@ -688,7 +739,12 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 			return 0;
 		}
 		render() {
-			return render.call(this);
+			const vdom = render.call(this);
+			if (didCreateSlot()) {
+				fillSlots(vdom, this.#children);
+				resetDidCreateSlot();
+			}
+			return vdom;
 		}
 		emit(eventName, payload) {
 			this.#dispatcher.dispatch(eventName, payload);
@@ -743,5 +799,5 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 	return Component;
 }
 
-export { createApp, defineComponent, h, hFragment, hString, nextTick };
+export { DOM_TYPES, createApp, defineComponent, h, hFragment, hSlot, hString, nextTick };
 //# sourceMappingURL=index.esm.js.map

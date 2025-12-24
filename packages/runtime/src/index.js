@@ -1,6 +1,6 @@
 import { createApp } from './app';
-import { h, hFragment, hString } from './h';
 import { nextTick } from './scheduler';
 export { defineComponent } from './component.js';
+export { DOM_TYPES, h, hFragment, hSlot, hString } from './h.js';
 
-export { createApp, h, hFragment, hString, nextTick };
+export { createApp, nextTick };

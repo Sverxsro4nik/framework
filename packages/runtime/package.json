@@ -1,6 +1,6 @@
 {
 	"name": "sverx-runtime",
-	"version": "4.1.0",
+	"version": "5.0.0",
 	"main": "dist/index.js",
 	"module": "dist/index.esm.js",
 	"files": [
