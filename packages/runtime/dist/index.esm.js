@@ -215,6 +215,13 @@ function processJobs() {
 	}
 	isScheduled = false;
 }
+function nextTick() {
+	scheduleUpdate();
+	return flushPromises();
+}
+function flushPromises() {
+	return new Promise((resolve) => setTimeout(resolve));
+}
 
 function destroyDOM(vdom) {
 	const { type } = vdom;
@@ -736,5 +743,5 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 	return Component;
 }
 
-export { createApp, defineComponent, h, hFragment, hString };
+export { createApp, defineComponent, h, hFragment, hString, nextTick };
 //# sourceMappingURL=index.esm.js.map

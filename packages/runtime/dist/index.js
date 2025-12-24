@@ -219,6 +219,13 @@
 		}
 		isScheduled = false;
 	}
+	function nextTick() {
+		scheduleUpdate();
+		return flushPromises();
+	}
+	function flushPromises() {
+		return new Promise((resolve) => setTimeout(resolve));
+	}
 
 	function destroyDOM(vdom) {
 		const { type } = vdom;
@@ -745,6 +752,7 @@
 	exports.h = h;
 	exports.hFragment = hFragment;
 	exports.hString = hString;
+	exports.nextTick = nextTick;
 
 }));
 //# sourceMappingURL=index.js.map
