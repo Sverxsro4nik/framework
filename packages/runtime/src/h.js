@@ -1,10 +1,13 @@
 import { withoutNulls } from './utils/arrays';
 
+let hSlotCalled = false;
+
 export const DOM_TYPES = {
 	TEXT: 'text',
 	ELEMENT: 'element',
 	FRAGMENT: 'fragment',
 	COMPONENT: 'component',
+	SLOT: 'slot',
 };
 
 export function h(tag, props = {}, children = []) {
@@ -29,6 +32,23 @@ export function hFragment(vNodes) {
 	return {
 		type: DOM_TYPES.FRAGMENT,
 		children: mapTextNodes(withoutNulls(vNodes)),
+	};
+}
+
+export function didCreateSlot() {
+	return hSlotCalled;
+}
+
+export function resetDidCreateSlot() {
+	hSlotCalled = false;
+}
+
+export function hSlot(children = []) {
+	hSlotCalled = true;
+
+	return {
+		type: DOM_TYPES.SLOT,
+		children,
 	};
 }
 
