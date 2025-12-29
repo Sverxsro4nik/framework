@@ -1,7 +1,12 @@
-import equal from 'fast-deep-equal';
+import { equal } from 'fast-deep-equal';
 import { destroyDOM } from './destroy-dom';
 import { Dispatcher } from './dispatcher';
-import { didCreateSlot, DOM_TYPES, extractChildren, resetDidCreateSlot } from './h';
+import {
+	didCreateSlot,
+	DOM_TYPES,
+	extractChildren,
+	resetDidCreateSlot,
+} from './h';
 import { mountDOM } from './mount-dom';
 import { patchDOM } from './patch-dom';
 import { fillSlots } from './slot';
@@ -9,7 +14,13 @@ import { hasOwnProperty } from './utils/objects';
 
 const emptyFn = () => {};
 
-export function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emptyFn, ...methods }) {
+export function defineComponent({
+	render,
+	state,
+	onMounted = emptyFn,
+	onUnmounted = emptyFn,
+	...methods
+}) {
 	class Component {
 		#vdom = null;
 		#hostEl = null;
@@ -18,6 +29,7 @@ export function defineComponent({ render, state, onMounted = emptyFn, onUnmounte
 		#parentComponent = null;
 		#dispatcher = new Dispatcher();
 		#subscriptions = [];
+		#appContext = null;
 
 		#children = [];
 
@@ -32,6 +44,14 @@ export function defineComponent({ render, state, onMounted = emptyFn, onUnmounte
 			this.#children = children;
 		}
 
+		setAppContext(appContext) {
+			this.#appContext = appContext;
+		}
+
+		get appContext() {
+			return this.#appContext;
+		}
+
 		onMounted() {
 			return Promise.resolve(onMounted.call(this));
 		}
@@ -41,13 +61,15 @@ export function defineComponent({ render, state, onMounted = emptyFn, onUnmounte
 		}
 
 		#wireEventHandlers() {
-			this.#subscriptions = Object.entries(this.#eventHandlers).map(([eventName, handler]) => {
-				this.#wireEventHandler(eventName, handler);
-			});
+			this.#subscriptions = Object.entries(this.#eventHandlers).map(
+				([eventName, handler]) => {
+					this.#wireEventHandler(eventName, handler);
+				}
+			);
 		}
 
 		#wireEventHandler(eventName, handler) {
-			return this.#dispatcher.subscribe(eventName, (payload) => {
+			return this.#dispatcher.subscribe(eventName, payload => {
 				if (this.#parentComponent) {
 					handler.call(this.#parentComponent, payload);
 				} else {
@@ -60,7 +82,7 @@ export function defineComponent({ render, state, onMounted = emptyFn, onUnmounte
 			if (this.#vdom === null) return [];
 
 			if (this.#vdom.type === DOM_TYPES.FRAGMENT) {
-				return extractChildren(this.#vdom).flatMap((child) => {
+				return extractChildren(this.#vdom).flatMap(child => {
 					if (child.type === DOM_TYPES.COMPONENT) {
 						return child.elements;
 					}
@@ -127,7 +149,7 @@ export function defineComponent({ render, state, onMounted = emptyFn, onUnmounte
 				throw new Error('Component is not mounted');
 			}
 			destroyDOM(this.#vdom);
-			this.#subscriptions.forEach((unsubscribe) => unsubscribe());
+			this.#subscriptions.forEach(unsubscribe => unsubscribe());
 
 			this.#hostEl = null;
 			this.#vdom = null;
