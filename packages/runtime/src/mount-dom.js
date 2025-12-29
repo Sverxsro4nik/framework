@@ -56,7 +56,7 @@ function createElementNode(vdom, parentEl, index, hostComponent) {
 	addProps(element, vdom, hostComponent);
 	vdom.el = element;
 
-	children.forEach((child) => mountDOM(child, element, null, hostComponent));
+	children.forEach(child => mountDOM(child, element, null, hostComponent));
 
 	insert(element, parentEl, index);
 }
@@ -91,6 +91,7 @@ export function createComponentNode(vdom, parentEl, index, hostComponent) {
 	const { props, events } = extractPropsAndEvents(vdom);
 	const component = new Component(props, events, hostComponent);
 	component.setExternalContent(children);
+	component.setAppContext(hostComponent?.appContext ?? {});
 
 	component.mount(parentEl, index);
 	vdom.el = component.firstElement;

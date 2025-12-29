@@ -1,4 +1,4 @@
-import { makeRouteMatcher } from './route-matchers';
+import { makeRouteMatchers } from './route-marchers';
 import { Dispatcher } from './dispatcher';
 
 const ROUTER_EVENT = 'router-event';
@@ -34,7 +34,7 @@ export class HashRouter {
 	#query = {};
 
 	constructor(routes = []) {
-		this.#matchers = routes.map(makeRouteMatcher);
+		this.#matchers = routes.map(makeRouteMatchers);
 	}
 
 	get #currentRouteHash() {
@@ -173,4 +173,14 @@ export class HashRouter {
 			redirectPath: null,
 		};
 	}
+}
+
+export class NoopRouter {
+	init() {}
+	destroy() {}
+	navigateTo() {}
+	back() {}
+	forward() {}
+	subscribe() {}
+	unsubscribe() {}
 }

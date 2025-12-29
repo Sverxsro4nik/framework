@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal';
+import { equal } from 'fast-deep-equal';
 
 function addEventListener(eventName, handler, el, hostComponent = null) {
 	function boundHandler(){
@@ -370,7 +370,7 @@ function createElementNode(vdom, parentEl, index, hostComponent) {
 	const element = document.createElement(tag);
 	addProps(element, vdom, hostComponent);
 	vdom.el = element;
-	children.forEach((child) => mountDOM(child, element, null, hostComponent));
+	children.forEach(child => mountDOM(child, element, null, hostComponent));
 	insert(element, parentEl, index);
 }
 function addProps(el, props, vdom, hostComponent) {
@@ -398,36 +398,70 @@ function createComponentNode(vdom, parentEl, index, hostComponent) {
 	const { props, events } = extractPropsAndEvents(vdom);
 	const component = new Component(props, events, hostComponent);
 	component.setExternalContent(children);
+	component.setAppContext(hostComponent?.appContext ?? {});
 	component.mount(parentEl, index);
 	vdom.el = component.firstElement;
 }
 
-function createApp(RootComponent, props = {}) {
-	let parentEl = null;
-	let vdom = null;
-	let isMounted = false;
-	function reset() {
-		parentEl = null;
-		isMounted = false;
-		vdom = null;
+function makeRouteMatchers(route) {
+	return routeHasParams(route)
+		? makeMatcherWithParams(route)
+		: makeMatcherWithoutParams(route);
+}
+function routeHasParams(route) {
+	return route.includes(':');
+}
+const CATCH_ALL_ROUTE = '*';
+function makeRouteWithoutParamsRegex({ path }) {
+	if (path === CATCH_ALL_ROUTE) {
+		return new RegExp('^.*$');
 	}
+	return new RegExp(`^${path}$`);
+}
+function makeMatcherWithoutParams(route) {
+	const regex = makeRouteWithoutParamsRegex(route);
+	const isRedirect = typeof route.redirect === 'string';
 	return {
-		mount(_parentEl) {
-			if (isMounted) {
-				throw new Error('App is already mounted');
-			}
-			parentEl = _parentEl;
-			vdom = h(RootComponent, props);
-			mountDOM(vdom, parentEl);
-			isMounted = true;
+		route,
+		isRedirect,
+		checkMatch(path) {
+			return regex.test(path);
 		},
-		unmount() {
-			if (!isMounted) {
-				throw new Error('App is not mounted');
-			}
-			destroyDOM(vdom);
-			reset();
+		extractParams() {
+			return {};
 		},
+		extractQuery,
+	};
+}
+function extractQuery(path) {
+	const queryIndex = path.indexOf('?');
+	if (queryIndex === -1) {
+		return {};
+	}
+	const search = new URLSearchParams(path.slice(queryIndex + 1));
+	return Object.fromEntries(search.entries());
+}
+function makeRouteWithParamsRegex({ path }) {
+	const regex = path.replace(
+		/:([^/]+)/g,
+		(_, paramName) => `(?<${paramName}>[^/]+)`
+	);
+	return new RegExp(`^${regex}$`);
+}
+function makeMatcherWithParams(route) {
+	const regex = makeRouteWithParamsRegex(route);
+	const isRedirect = typeof route.redirect === 'string';
+	return {
+		route,
+		isRedirect,
+		checkMatch(path) {
+			return regex.test(path);
+		},
+		extractParams(path) {
+			const { groups } = regex.exec(path);
+			return groups;
+		},
+		extractQuery,
 	};
 }
 
@@ -463,6 +497,182 @@ class Dispatcher {
 		}
 		this.#afterHandlers.forEach(handler => handler());
 	}
+}
+
+const ROUTER_EVENT = 'router-event';
+class HashRouter {
+	#matchers = [];
+	#isInitialized = false;
+	#dispatcher = new Dispatcher();
+	#subscriptions = new WeakMap();
+	#subscriberFns = new Set();
+	subscribe(handler) {
+		const unsubscribe = this.#dispatcher.subscribe(ROUTER_EVENT, handler);
+		this.#subscriptions.set(handler, unsubscribe);
+		this.#subscriberFns.add(handler);
+	}
+	unsubscribe(handler) {
+		const unsubscribe = this.#subscriptions.get(handler);
+		if (unsubscribe) {
+			unsubscribe();
+			this.#subscriptions.delete(handler);
+			this.#subscriberFns.delete(handler);
+		}
+	}
+	#onPopState = () => this.#matchCurrentRoute();
+	#matchedRoute = null;
+	#params = {};
+	#query = {};
+	constructor(routes = []) {
+		this.#matchers = routes.map(makeRouteMatchers);
+	}
+	get #currentRouteHash() {
+		const hash = document.location.hash;
+		if (hash === '') {
+			return '/';
+		}
+		return hash.slice(1);
+	}
+	get matchedRoute() {
+		return this.#matchedRoute;
+	}
+	get params() {
+		return this.#params;
+	}
+	get query() {
+		return this.#query;
+	}
+	async init() {
+		if (this.#isInitialized) {
+			return;
+		}
+		if (document.location.hash === '') {
+			window.history.replaceState({}, '', '#/');
+		}
+		window.addEventListener('popstate', this.#onPopState);
+		await this.#matchCurrentRoute();
+		this.#isInitialized = true;
+	}
+	destroy() {
+		if (!this.#isInitialized) {
+			return;
+		}
+		window.removeEventListener('popstate', this.#onPopState);
+		Array.from(this.#subscriberFns).forEach(this.unsubscribe, this);
+		this.#isInitialized = false;
+	}
+	async navigateTo(path) {
+		const matcher = this.#matchers.find(matcher => matcher.checkMatch(path));
+		if (!matcher) {
+			console.warn(`No route found for path: ${path}`);
+			this.#matchedRoute = null;
+			this.#params = {};
+			this.#query = {};
+			return;
+		}
+		if (matcher.isRedirect) {
+			return this.navigateTo(matcher.route.redirect);
+		}
+		const from = this.#matchedRoute;
+		const to = matcher.route;
+		const { shouldRedirect, shouldNavigate, redirectPath } =
+			await this.#canChangeRoute(from, to);
+		if (shouldRedirect) {
+			return this.navigateTo(redirectPath);
+		}
+		if (shouldNavigate) {
+			this.#matchedRoute = matcher.route;
+			this.#params = matcher.extractParams(path);
+			this.#query = matcher.extractQuery(path);
+			this.#pushState(path);
+			this.#dispatcher.dispatch(ROUTER_EVENT, { from, to, router: this });
+		}
+	}
+	back() {
+		window.history.back();
+	}
+	forward() {
+		window.history.forward();
+	}
+	#matchCurrentRoute() {
+		return this.navigateTo(this.#currentRouteHash);
+	}
+	#pushState(path) {
+		window.history.pushState({}, '', `#${path}`);
+	}
+	async #canChangeRoute(from, to) {
+		const guard = to.beforeEnter;
+		if (typeof guard !== 'function') {
+			return {
+				shouldRedirect: false,
+				shouldNavigate: true,
+				redirectPath: null,
+			};
+		}
+		const result = await guard(from?.path, to?.path);
+		if (result === false) {
+			return {
+				shouldRedirect: false,
+				shouldNavigate: false,
+				redirectPath: null,
+			};
+		}
+		if (typeof result === 'string') {
+			return {
+				shouldRedirect: true,
+				shouldNavigate: false,
+				redirectPath: result,
+			};
+		}
+		return {
+			shouldRedirect: false,
+			shouldNavigate: true,
+			redirectPath: null,
+		};
+	}
+}
+class NoopRouter {
+	init() {}
+	destroy() {}
+	navigateTo() {}
+	back() {}
+	forward() {}
+	subscribe() {}
+	unsubscribe() {}
+}
+
+function createApp(RootComponent, props = {}, options = {}) {
+	let parentEl = null;
+	let vdom = null;
+	let isMounted = false;
+	const context = {
+		router: options.router || new NoopRouter(),
+	};
+	function reset() {
+		parentEl = null;
+		isMounted = false;
+		vdom = null;
+	}
+	return {
+		mount(_parentEl) {
+			if (isMounted) {
+				throw new Error('App is already mounted');
+			}
+			parentEl = _parentEl;
+			vdom = h(RootComponent, props);
+			mountDOM(vdom, parentEl, null, { appContext: context });
+			context.router.init();
+			isMounted = true;
+		},
+		unmount() {
+			if (!isMounted) {
+				throw new Error('App is not mounted');
+			}
+			destroyDOM(vdom);
+			context.router.destroy();
+			reset();
+		},
+	};
 }
 
 function areNodesEqual(nodeOne, nodeTwo) {
@@ -678,7 +888,13 @@ function shouldSkipBranch(node) {
 }
 
 const emptyFn = () => {};
-function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emptyFn, ...methods }) {
+function defineComponent({
+	render,
+	state,
+	onMounted = emptyFn,
+	onUnmounted = emptyFn,
+	...methods
+}) {
 	class Component {
 		#vdom = null;
 		#hostEl = null;
@@ -687,6 +903,7 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 		#parentComponent = null;
 		#dispatcher = new Dispatcher();
 		#subscriptions = [];
+		#appContext = null;
 		#children = [];
 		constructor(props = {}, eventHandlers = {}, parentComponent = null) {
 			this.props = props;
@@ -697,6 +914,12 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 		setExternalChildren(children) {
 			this.#children = children;
 		}
+		setAppContext(appContext) {
+			this.#appContext = appContext;
+		}
+		get appContext() {
+			return this.#appContext;
+		}
 		onMounted() {
 			return Promise.resolve(onMounted.call(this));
 		}
@@ -704,12 +927,14 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 			return Promise.resolve(onUnmounted.call(this));
 		}
 		#wireEventHandlers() {
-			this.#subscriptions = Object.entries(this.#eventHandlers).map(([eventName, handler]) => {
-				this.#wireEventHandler(eventName, handler);
-			});
+			this.#subscriptions = Object.entries(this.#eventHandlers).map(
+				([eventName, handler]) => {
+					this.#wireEventHandler(eventName, handler);
+				}
+			);
 		}
 		#wireEventHandler(eventName, handler) {
-			return this.#dispatcher.subscribe(eventName, (payload) => {
+			return this.#dispatcher.subscribe(eventName, payload => {
 				if (this.#parentComponent) {
 					handler.call(this.#parentComponent, payload);
 				} else {
@@ -720,7 +945,7 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 		get elements() {
 			if (this.#vdom === null) return [];
 			if (this.#vdom.type === DOM_TYPES.FRAGMENT) {
-				return extractChildren(this.#vdom).flatMap((child) => {
+				return extractChildren(this.#vdom).flatMap(child => {
 					if (child.type === DOM_TYPES.COMPONENT) {
 						return child.elements;
 					}
@@ -776,7 +1001,7 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 				throw new Error('Component is not mounted');
 			}
 			destroyDOM(this.#vdom);
-			this.#subscriptions.forEach((unsubscribe) => unsubscribe());
+			this.#subscriptions.forEach(unsubscribe => unsubscribe());
 			this.#hostEl = null;
 			this.#vdom = null;
 			this.#isMounted = false;
@@ -799,5 +1024,51 @@ function defineComponent({ render, state, onMounted = emptyFn, onUnmounted = emp
 	return Component;
 }
 
-export { DOM_TYPES, createApp, defineComponent, h, hFragment, hSlot, hString, nextTick };
+const RouterLink = defineComponent({
+	render() {
+		const { to } = this.props;
+		return h(
+			'a',
+			{
+				href: to,
+				on: {
+					click: e => {
+						e.preventDefault();
+						this.appContext.router.navigateTo(to);
+					},
+				},
+			},
+			[hSlot()]
+		);
+	},
+});
+const RouterOutlet = defineComponent({
+	state() {
+		return {
+			matchedRoute: null,
+			subscription: null,
+		};
+	},
+	onMounted() {
+		const subscription = this.appContext.router.subscribe(({ to }) => {
+			this.handleRouteChange(to);
+		});
+		this.updateState({ subscription });
+	},
+	onUnmounted() {
+		const { subscription } = this.state;
+		this.appContext.router.unsubscribe(subscription);
+	},
+	handleRouteChange(matchedRoute) {
+		this.updateState({ matchedRoute });
+	},
+	render() {
+		const { matchedRoute } = this.state;
+		return h('div', { id: 'router-outlet' }, [
+			matchedRoute ? h(matchedRoute.component) : null,
+		]);
+	},
+});
+
+export { DOM_TYPES, HashRouter, RouterLink, RouterOutlet, createApp, defineComponent, h, hFragment, hSlot, hString, nextTick };
 //# sourceMappingURL=index.esm.js.map
